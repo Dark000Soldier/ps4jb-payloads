@@ -452,6 +452,30 @@ static void patch_shellcore(const struct shellcore_patch* patches, size_t n_patc
 
 void patch_app_db(void);
 
+static struct PARASITES(13) parasites_320 = {
+    .lim_syscall = 3,
+    .lim_fself = 11,
+    .lim_total = 13,
+    .parasites = {
+        /* syscall parasites */
+        {-0x80281d, RDI},
+        {-0x38885c, RSI},
+        {-0x38881c, RSI},
+        /* fself parasites */
+        {-0x2cc566, RAX},
+        {-0x2cd0da, RAX},
+        {-0x2ccfa0, RAX},
+        {-0x2cccc3, RAX},
+        {-0x2cca4d, RAX},
+        {-0x2cc6d2, RCX},
+        {-0x990b10, RDI},
+        {-0x2ccb86, R10},
+        /* unsorted parasites */
+        {-0x4798de, RAX},
+        {-0x4798de, R15},
+    }
+};
+
 static struct PARASITES(13) parasites_403 = {
     .lim_syscall = 3,
     .lim_fself = 11,
@@ -508,6 +532,9 @@ static struct parasite_desc* get_parasites(size_t* desc_size)
     uint32_t ver = buf[9] >> 16;
     switch(ver)
     {
+    case 0x320:
+        *desc_size = sizeof(parasites_320);
+        return (void*)&parasites_320;
     case 0x403:
         *desc_size = sizeof(parasites_403);
         return (void*)&parasites_403;

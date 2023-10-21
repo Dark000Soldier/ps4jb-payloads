@@ -26,13 +26,7 @@ enum TrapState {
 static uint64_t trap_target_rip = 0;
 static int trap_status = 0;
 int last_signum;
-void* const MEM_FOR_HIT_ADDR = (void*)0x208e00000;
-const size_t MEM_FOR_HIT = 0x3000;
-const size_t RSP_MEM_FOR_HIT = 0x1000;
-const size_t RBP_MEM_FOR_HIT = 0x2000;
-void* mem_before_hit;
 struct probe_state before_hit;
-void* mem_after_hit;
 struct probe_state after_hit;
 
 int in_probe_signal_handler = 0;
@@ -142,17 +136,21 @@ static void init_signals() {
     int g = sigaction(SIGFPE, &siga, NULL);
 }
 
+void restore_signals() {
+    struct sigaction siga;
+    sigaction(SIGKILL, NULL, &siga);
+    siga.sa_handler = SIG_DFL;
+    int a = sigaction(SIGTRAP, &siga, NULL);
+    int b = sigaction(SIGILL, &siga, NULL);
+    int c = sigaction(SIGBUS, &siga, NULL);
+    int d = sigaction(SIGINT, &siga, NULL);
+    int e = sigaction(SIGSYS, &siga, NULL);
+    int f = sigaction(SIGSEGV, &siga, NULL);
+    int g = sigaction(SIGFPE, &siga, NULL);
+}
+
 static void init_regs() {
     init_rng(0x1337133713371337);
-    mem_before_hit = malloc(MEM_FOR_HIT);
-    if (mem_after_hit == NULL) {
-        mem_after_hit = malloc(MEM_FOR_HIT);
-    }
-    printf("mem_after_hit: %p\n", mem_after_hit);
-    memset(mem_before_hit, 0, MEM_FOR_HIT);
-    for (size_t i = 0; i < MEM_FOR_HIT; ++i) {
-        ((uint8_t*)mem_before_hit)[i] = random_uint8_t();
-    }
 
     before_hit.trap_signal = 0;  // not used
     before_hit.fault_addr = 0;  // not used
@@ -163,8 +161,8 @@ static void init_regs() {
     before_hit.regs.rdx = 0x00000a338a685c74;
     before_hit.regs.rsi = 0x00000cb40e681ed1;
     before_hit.regs.rdi = 0x000002cd7b424603;
-    before_hit.regs.rbp = 0;  // filled later
-    before_hit.regs.rsp = 0;  // filled later
+    before_hit.regs.rbp = 0x00000797acac8e75;
+    before_hit.regs.rsp = 0x00000af02613b43e;
     before_hit.regs.r8  = 0x00000d4b7c7855ea;
     before_hit.regs.r9  = 0x00000e5f3152f503;
     before_hit.regs.r10 = 0x000003effc295c5c;
@@ -188,14 +186,6 @@ static void init_regs() {
 }
 
 static void prepare_regs(uint64_t rip) {
-    memcpy(mem_after_hit, mem_before_hit, MEM_FOR_HIT);
-    before_hit.regs.rsp = (uint64_t)(mem_after_hit + RSP_MEM_FOR_HIT);
-    before_hit.regs.rbp = (uint64_t)(mem_after_hit + RBP_MEM_FOR_HIT);
-    //uint64_t rsp_value = (uint64_t)(mem_after_hit + 0x10000) & ~((uint64_t)0xFFFF) | (1ULL << TRAP_FLAG_BIT);
-    uint64_t rsp_value = before_hit.regs.rflags;
-    //printf("mem_after_hit: %zx\n", (uint64_t)mem_after_hit);
-    //printf("rsp_value: %zx\n", rsp_value);
-    *(uint64_t*)(mem_after_hit + RSP_MEM_FOR_HIT) = rsp_value;
     before_hit.regs.rip = rip;
 }
 
@@ -235,7 +225,7 @@ label1:
     ctx_buf_init = 0;
     sigprocmask(SIG_SETMASK, &saved_signal_set, NULL);
     // printf("Recorded signal: %d\n", (int)after_hit.trap_signal);
-    // printf("Recorded signal fault_addr: %zx\n", (int)after_hit.fault_addr);
+    // printf("Recorded signal fault_addr: %zx\n", after_hit.fault_addr);
     // printf("Recorded rsp: %zx\n", after_hit.regs.rsp);
     // printf("Recorded rip: %zx\n", after_hit.regs.rip);
     // //printf("label1 rip: %zx\n", &&label1);
@@ -250,6 +240,10 @@ static void test() {
     test_var = 1;
 }
 
+static void test_stosb() {
+    asm volatile("stosb");
+}
+
 void init_probe() {
     printf("starting init probe\n");
     initial_rflags = get_rflags();
@@ -258,6 +252,6 @@ void init_probe() {
     init_regs();
     init_signals();
     printf("running test instruction\n");
-    run_instruction((uint64_t)test + 0x14);
+    run_instruction((uint64_t)test_stosb + 0x8);
     printf("done init probe\n");
 }

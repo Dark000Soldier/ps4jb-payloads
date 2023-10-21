@@ -5,12 +5,14 @@
 #include "loging.h"
 #include "probe/probe.h"
 #include "probe/instr_db.h"
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #define PC_IP "192.168.0.20"
 #define PC_LOG_PORT 5655
@@ -20,10 +22,22 @@ extern uint64_t kdata_base;
 static uint64_t kdata_base_phys;
 static uint64_t kdata_base_dmap;
 
+/*
+Bad instructions:
+0f 05 - syscall
+0f aa - rsm
+*/
+
 const uint64_t skip_offset_list[] = {0x0};
+
+#define KTEXT_LOWER 0x5000
 
 int record_ktext_instr(uint64_t addr, struct instr_entry* test_entry) {
     uint64_t offset = kdata_base - addr;
+    if (offset < KTEXT_LOWER) {
+        printf("skipped %zx\n", offset);
+        return -1;
+    }
     for (uint64_t i = 0; i < sizeof(skip_offset_list) / sizeof(skip_offset_list[0]); ++i) {
         if (offset == skip_offset_list[i]) {
             printf("skipped %zx\n", offset);
@@ -39,6 +53,7 @@ int record_ktext_instr(uint64_t addr, struct instr_entry* test_entry) {
 
 void scan_offset(uint64_t offset_addr, struct instr_entry** instrs_it) {
     for (uint64_t addr = offset_addr - WINDOW; addr <= offset_addr + WINDOW; ++addr) {
+        printf("addr: %zx\n", kdata_base - addr);
         record_ktext_instr(addr, *instrs_it);
         ++(*instrs_it);
     }
@@ -50,11 +65,17 @@ int instrs_send(const char* ipaddr, int port, struct instr_entry* instrs, size_t
 
 void scan_offsets() {
     struct instr_entry* instrs = malloc(sizeof(struct instr_entry) * INSTR_SIZE);
+    for (size_t i = 0; i < sizeof(struct instr_entry) * INSTR_SIZE; ++i) {
+        ((char*)instrs)[i] = 0;
+    }
     struct instr_entry* instrs_it = instrs;
 #define OFFSET(x) \
     printf(#x "\n"); \
     scan_offset(offsets.x, &instrs_it)
 
+    OFFSET(mprotect_fix_start);
+    OFFSET(mmap_self_fix_1_start);
+    OFFSET(mmap_self_fix_2_start);
     OFFSET(sigaction_fix_start);
     OFFSET(sigaction_fix_end);
     OFFSET(sceSblServiceMailbox);
@@ -133,6 +154,47 @@ int instrs_send(const char* ipaddr, int port, struct instr_entry* instrs, size_t
     return 0;
 }
 
+int check_rdi(struct instr_entry *instr) {
+    return (instr->abs_sig.trap_signal == 11) && (instr->abs_sig.fault_addr == instr->abs_sig.rdi);
+}
+
+#define KTEXT_SIZE 0xc00000
+#define BLOCK_SIZE 0x4000
+
+void scan_kernel_text() {
+    struct instr_entry* instrs = malloc(sizeof(struct instr_entry) * BLOCK_SIZE);
+    size_t begin = kdata_base - KTEXT_SIZE;
+    size_t end = kdata_base;
+    size_t block_begin = begin;
+    size_t block_end = begin + BLOCK_SIZE;
+    uint64_t total = 0;
+    uint64_t skipped = 0;
+    while (block_begin < end) {
+        memset_ptr(instrs, 0, sizeof(struct instr_entry) * BLOCK_SIZE);
+        if (block_end > end) {
+            block_end = end;
+        }
+        int was_rdi = 0;
+        for (size_t addr = block_end - 1; addr >= block_begin; --addr) {
+            ++total;
+            if (was_rdi) {
+                ++skipped;
+                printf("skipped: %zx\n", kdata_base - addr);
+                was_rdi = 0;
+                continue;
+            }
+            printf("addr: %zx\n", kdata_base - addr);
+            record_ktext_instr(addr, &instrs[addr - block_begin]);
+            was_rdi = check_rdi(&instrs[addr - block_begin]);
+        }
+        instrs_send(PC_IP, PC_DUMP_PORT, instrs, block_end - block_begin);
+
+        block_begin = block_end;
+        block_end += BLOCK_SIZE;
+    }
+    printf("total: %lu, skipped: %lu\n", total, skipped);
+}
+
 struct flat_pmap {
   uint64_t mtx_name_ptr;
   uint64_t mtx_flags;
@@ -198,25 +260,17 @@ int mprotect_rwx()
     return mprotect20((void*)start, end-start, PROT_READ|PROT_WRITE|PROT_EXEC);
 }
 
-int try_alloc_fixed_mem() {
-    // mem_after_hit =
-    //     mmap(MEM_FOR_HIT_ADDR, MEM_FOR_HIT, PROT_READ | PROT_WRITE,
-    //            MAP_FIXED | MAP_SHARED | MAP_ANON, -1, 0);
-    int ret = munmap(MEM_FOR_HIT_ADDR, MEM_FOR_HIT);
-    printf("munmap returned %d\n", ret);
-    mem_after_hit = mmap(MEM_FOR_HIT_ADDR, MEM_FOR_HIT, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
-    printf("mem_after_hit = %p\n", mem_after_hit);
-    if ((size_t)mem_after_hit == (size_t)-1) {
-        return -1;
-    }
-    return 0;
-}
+void restore_signals();
 
-int dealloc_fixed_mem() {
-    if (mem_after_hit && ((size_t)mem_after_hit != (size_t)-1)) {
-        munmap(mem_after_hit, MEM_FOR_HIT);
-    }
-    return 0;
+extern uint64_t proc;
+void unlock_syscalls() {
+    uint64_t proc_3e8;
+    uint64_t begin = 0x0;
+    uint64_t end = 0xffffffffffffffff;
+
+    copyout(&proc_3e8, proc + 0x3e8, 8);
+    copyin(proc_3e8 + 0xf0, &begin, 8);
+    copyin(proc_3e8 + 0xf8, &end, 8);
 }
 
 int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
@@ -233,9 +287,8 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     kdata_base_dmap = kdata_base_phys + 0xffff800000000000;
     printf("kdata_base = %zx, kdata_base_phys = %zx, kdata_base_dmap = %zx\n", kdata_base, kdata_base_phys, kdata_base_dmap);
 
-    ret = try_alloc_fixed_mem();
-    printf("alloc_fixed_mem returned %d\n", ret);
-
+    printf("unlock_syscalls\n");
+    unlock_syscalls();
     struct flat_pmap kernel_pmap_store;
     read_kernel_pmap_store(&kernel_pmap_store);
 
@@ -272,10 +325,11 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
 
     printf("initialising probe\n");
     init_probe();
-    printf("scanning offsets\n");
-    scan_offsets();
+    printf("scan_kernel_text\n");
+    scan_kernel_text();
 
-    dealloc_fixed_mem();
+    printf("restore signals\n");
+    restore_signals();
     printf("all done\n");
     return 0; //p r0gdb() for magic
 }

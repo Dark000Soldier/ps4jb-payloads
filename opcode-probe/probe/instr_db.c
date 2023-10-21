@@ -47,7 +47,7 @@ void get_instruction_signature(uint64_t addr, struct instr_entry* instr) {
     run_instruction(addr);
     instr->abs_sig.trap_signal = after_hit.trap_signal;
     instr->abs_sig.fault_addr = after_hit.fault_addr;
-    instr->abs_sig.mem_after_hit_hsh = memhash(mem_after_hit, MEM_FOR_HIT);
+    instr->abs_sig.mem_after_hit_hsh = 0;
     instr->abs_sig.rax = after_hit.regs.rax;
     instr->abs_sig.rbx = after_hit.regs.rbx;
     instr->abs_sig.rcx = after_hit.regs.rcx;

@@ -744,7 +744,7 @@ int gdbstub_main_loop(struct trap_state* ts, ssize_t* result, int* ern)
 #ifdef __PS4__
 #if !defined(BLOB) && !defined(OBJECT_FILE) // TODO: implement (how?)
         case CMD_QXFER_EXEC_FILE:
-            serve_string(o, "payload.elf", 11, 1);
+            serve_string(o, "payload-gdb.elf", 11, 1);
             break;
 #endif
         case CMD_Q_OFFSETS:

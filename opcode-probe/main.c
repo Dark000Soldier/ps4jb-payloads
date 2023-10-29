@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#define PC_IP "192.168.0.20"
+#define PC_IP "192.168.0.149"
 #define PC_LOG_PORT 5655
 #define PC_DUMP_PORT 5656
 
@@ -158,7 +158,7 @@ int check_rdi(struct instr_entry *instr) {
     return (instr->abs_sig.trap_signal == 11) && (instr->abs_sig.fault_addr == instr->abs_sig.rdi);
 }
 
-#define KTEXT_SIZE 0xc00000
+#define KTEXT_SIZE 0xb00000
 #define BLOCK_SIZE 0x4000
 
 void scan_kernel_text() {

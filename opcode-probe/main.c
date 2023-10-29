@@ -273,6 +273,10 @@ void unlock_syscalls() {
     copyin(proc_3e8 + 0xf8, &end, 8);
 }
 
+
+void init_pmap();
+ssize_t vaddr_to_paddr(size_t vaddr, size_t cr3);
+
 int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
 {
     symbols_init();
@@ -282,10 +286,6 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     }
     r0gdb_init(ds, a, b, c, d);
     //dbg_enter();
-
-    kdata_base_phys = ~0xffffffffc0000000ULL & kdata_base;  // sometimes wrong?
-    kdata_base_dmap = kdata_base_phys + 0xffff800000000000;
-    printf("kdata_base = %zx, kdata_base_phys = %zx, kdata_base_dmap = %zx\n", kdata_base, kdata_base_phys, kdata_base_dmap);
 
     printf("unlock_syscalls\n");
     unlock_syscalls();
@@ -312,6 +312,12 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     uint64_t cr3 = r0gdb_read_cr3();
     printf("CR3 = %zx\n", cr3);
     init_mapping(dmap_base, cr3);
+
+    printf("init_pmap\n");
+    init_pmap();
+    kdata_base_phys = vaddr_to_paddr(kdata_base, cr3);
+    kdata_base_dmap = kdata_base_phys + 0xffff800000000000;
+    printf("kdata_base = %zx, kdata_base_phys = %zx, kdata_base_dmap = %zx\n", kdata_base, kdata_base_phys, kdata_base_dmap);
 
     // after that, r0gdb functions are unusable
     printf("disable trap flag in MSR 0xc0000084\n");

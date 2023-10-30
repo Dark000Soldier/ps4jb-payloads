@@ -234,7 +234,7 @@ void restore_orig_idt() {
     }
 }
 
-const uint64_t protected_ints[] = {0x1, 0x44, 0x45, 0x92};
+const uint64_t protected_ints[] = {0x44, 0x45, 0x92};
 
 void protect_ints() {
     char gate[16] = {0};
@@ -245,6 +245,8 @@ void protect_ints() {
         gate[5] = 0x8e;
         copyin(offsets.idt+(intr)*16, gate, 16);
     }
+    copyout(gate, offsets.idt+3*16, 16);
+    copyin(offsets.idt+16, gate, 16);
 }
 
 #define PAGE_SIZE 16384ull
@@ -321,10 +323,6 @@ int test_instructions() {
             printf("skipped\n");
             continue;
         }
-        if (jit_buf[0] == 0xf1) {
-            printf("skipped\n");
-            continue;
-        }
         // run_instruction((uint64_t)(jit_buf_x) + INSTR_POS);
         get_instruction_signature((uint64_t)(jit_buf), &entry);
     }
@@ -375,6 +373,11 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
     kdata_base_phys = vaddr_to_paddr(kdata_base, cr3);
     kdata_base_dmap = kdata_base_phys + 0xffff800000000000;
     printf("kdata_base = %zx, kdata_base_phys = %zx, kdata_base_dmap = %zx\n", kdata_base, kdata_base_phys, kdata_base_dmap);
+    printf("check kdata_base_dmap\n");
+    if (vaddr_to_paddr(kdata_base_dmap, cr3) != kdata_base_phys) {
+        printf("check failed\n");
+        return -10;
+    }
 
     // after that, r0gdb functions are unusable
     printf("disable trap flag in MSR 0xc0000084\n");
@@ -438,11 +441,21 @@ void init_mapping(uint64_t dmap_base, uint64_t cr3) {
         pml3[i] = (i << 30) | pml3[0x000];
     }
 
+    copyin(dmap_base + dmap_page_addr, pml3, 0x1000);
+    copyin(dmap_base + cr3, pml4, 0x1000);
     // say no to cache
-    for (size_t i = 0; i < 100; ++i) {
-        copyin(dmap_base + dmap_page_addr, pml3, 0x1000);
-        copyin(dmap_base + cr3, pml4, 0x1000);
+    const size_t flush_sz = 0x400000;
+    void* some_mem = malloc(flush_sz);
+    for (size_t i = 0; i < 10; ++i) {
+        printf("flushing %p\n", some_mem);
+        memset_ptr(some_mem, 0xFF, flush_sz);
+        void *new_mem = malloc(flush_sz);
+        free(some_mem);
+        some_mem = new_mem;
     }
+    free(some_mem);
+    struct timespec ts = {1, 0};
+    nanosleep(&ts, 0);
 
     printf("updating cr3\n");
     r0gdb_write_cr3(cr3);

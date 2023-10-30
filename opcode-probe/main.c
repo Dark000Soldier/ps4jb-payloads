@@ -234,7 +234,7 @@ void restore_orig_idt() {
     }
 }
 
-const uint64_t protected_ints[] = {0x44, 0x45, 0x92};
+const uint64_t protected_ints[] = {0x1, 0x44, 0x45, 0x92};
 
 void protect_ints() {
     char gate[16] = {0};

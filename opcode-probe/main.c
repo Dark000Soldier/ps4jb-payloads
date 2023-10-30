@@ -273,6 +273,63 @@ void unlock_syscalls() {
     copyin(proc_3e8 + 0xf8, &end, 8);
 }
 
+void jit() {
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+    asm volatile("nop");
+}
+
+int test_instructions() {
+    uint8_t *jit_buf = (uint8_t*)jit;
+    struct instr_entry entry;
+
+    for (size_t i = 0x0; i <= 0xFFFF; ++i) {
+        entry.instr = i;
+        entry.instr_size = 2;
+        entry.good = 0;
+
+        jit_buf[0] = i & 0xFF;
+        jit_buf[1] = i >> 8;
+        printf("Instr: ");
+        for (size_t i = 0; i < 10; ++i) {
+            printf("%02hhx", jit_buf[i]);
+        }
+        printf("\n");
+        if (jit_buf[0] == 0x0f && jit_buf[1] == 0xaa) {
+            printf("skipped\n");
+            continue;
+        }
+        if (jit_buf[0] == 0xf1) {
+            printf("skipped\n");
+            continue;
+        }
+        // run_instruction((uint64_t)(jit_buf_x) + INSTR_POS);
+        get_instruction_signature((uint64_t)(jit_buf), &entry);
+    }
+    return 0;
+}
 
 void init_pmap();
 ssize_t vaddr_to_paddr(size_t vaddr, size_t cr3);
@@ -331,6 +388,8 @@ int main(void* ds, int a, int b, uintptr_t c, uintptr_t d)
 
     printf("initialising probe\n");
     init_probe();
+    // printf("test_instructions\n");
+    // test_instructions();
     printf("scan_kernel_text\n");
     scan_kernel_text();
 

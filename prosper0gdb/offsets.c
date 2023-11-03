@@ -89,7 +89,7 @@ DEF(utoken, 0x6506500)
 #include "offset_list.txt"
 END_FW()
 
-START_FW(450)
+START_FW(451)
 DEF(allproc, 0x27edcb8)
 DEF(idt, 0x64cdc80)
 DEF(gdt_array, 0x64cee30)
